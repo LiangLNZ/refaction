@@ -1,115 +1,103 @@
-﻿using System;
+﻿using refactor_me.Models;
+using refactor_me.Models.Services;
+using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
 using System.Web.Http;
-using refactor_me.Models;
 
 namespace refactor_me.Controllers
 {
     [RoutePrefix("products")]
     public class ProductsController : ApiController
     {
-        [Route]
-        [HttpGet]
-        public Products GetAll()
+        private readonly IProductService _productService;
+        public ProductsController(IProductService productService)
         {
-            return new Products();
+            _productService = productService;
         }
 
         [Route]
         [HttpGet]
-        public Products SearchByName(string name)
+        public IEnumerable<Product> GetAll()
         {
-            return new Products(name);
+            var products = _productService.LoadProducts(string.Empty);
+            return products;
+        }
+
+        [Route("{name}/search")]
+        [HttpGet]
+        public IEnumerable<Product> SearchByName(string name)
+        {
+            var products = _productService.LoadProducts(name);
+            return products;
         }
 
         [Route("{id}")]
         [HttpGet]
         public Product GetProduct(Guid id)
         {
-            var product = new Product(id);
-            if (product.IsNew)
-                throw new HttpResponseException(HttpStatusCode.NotFound);
+            return CheckProductExist(id);
+        }
 
-            return product;
+        private Product CheckProductExist(Guid id)
+        {
+            var product = _productService.GetProductById(id);
+            if (!product.IsNew) return product;
+
+            var message = $"Product with Id = {id} not found";
+            throw new HttpResponseException(
+                Request.CreateErrorResponse(HttpStatusCode.NotFound, message));
         }
 
         [Route]
         [HttpPost]
-        public void Create(Product product)
+        public HttpResponseMessage Create([FromBody]NewProductRequest newProductRequest)
         {
-            product.Save();
+            var newProduct = new Product
+            {
+                DeliveryPrice = newProductRequest.DeliveryPrice,
+                Description = newProductRequest.Description,
+                Id = Guid.NewGuid(),
+                Name = newProductRequest.Name,
+                Price = newProductRequest.Price,
+                IsNew = true
+            };
+            _productService.SaveProduct(newProduct);
+            return Request.CreateResponse(HttpStatusCode.OK, newProduct);
         }
 
         [Route("{id}")]
         [HttpPut]
-        public void Update(Guid id, Product product)
+        public HttpResponseMessage Update(Guid id, [FromBody]NewProductRequest newProductRequest)
         {
-            var orig = new Product(id)
-            {
-                Name = product.Name,
-                Description = product.Description,
-                Price = product.Price,
-                DeliveryPrice = product.DeliveryPrice
-            };
+            //Check if product exists
+            CheckProductExist(id);
 
-            if (!orig.IsNew)
-                orig.Save();
+            //Save updated product
+            var updatedProduct = new Product
+            {
+                DeliveryPrice = newProductRequest.DeliveryPrice,
+                Description = newProductRequest.Description,
+                Id = id,
+                Name = newProductRequest.Name,
+                Price = newProductRequest.Price,
+                IsNew = false
+            };
+            _productService.SaveProduct(updatedProduct);
+            return Request.CreateResponse(HttpStatusCode.OK);
         }
 
         [Route("{id}")]
         [HttpDelete]
-        public void Delete(Guid id)
+        public HttpResponseMessage Delete(Guid id)
         {
-            var product = new Product(id);
-            product.Delete();
-        }
+            //Check if product exists
+            CheckProductExist(id);
 
-        [Route("{productId}/options")]
-        [HttpGet]
-        public ProductOptions GetOptions(Guid productId)
-        {
-            return new ProductOptions(productId);
-        }
-
-        [Route("{productId}/options/{id}")]
-        [HttpGet]
-        public ProductOption GetOption(Guid productId, Guid id)
-        {
-            var option = new ProductOption(id);
-            if (option.IsNew)
-                throw new HttpResponseException(HttpStatusCode.NotFound);
-
-            return option;
-        }
-
-        [Route("{productId}/options")]
-        [HttpPost]
-        public void CreateOption(Guid productId, ProductOption option)
-        {
-            option.ProductId = productId;
-            option.Save();
-        }
-
-        [Route("{productId}/options/{id}")]
-        [HttpPut]
-        public void UpdateOption(Guid id, ProductOption option)
-        {
-            var orig = new ProductOption(id)
-            {
-                Name = option.Name,
-                Description = option.Description
-            };
-
-            if (!orig.IsNew)
-                orig.Save();
-        }
-
-        [Route("{productId}/options/{id}")]
-        [HttpDelete]
-        public void DeleteOption(Guid id)
-        {
-            var opt = new ProductOption(id);
-            opt.Delete();
+            //Delete product 
+            _productService.DeleteProduct(id);
+            return Request.CreateResponse(HttpStatusCode.OK);
         }
     }
 }
